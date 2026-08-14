@@ -1,0 +1,176 @@
+# Example config for the Breezy v4 board (HVAC bridge) - this is the one
+# running in my flat, with secrets pulled from secrets.yaml.
+# Pin map: GPIO14 CLK tap, GPIO27 DATA tap, GPIO5 IR RX tap, GPIO4 IR TX
+# (transistor base; mark = GPIO HIGH = line LOW).
+esphome:
+  # Drives the mDNS hostname AND the Home Assistant entity_id prefix -
+  # changing it later makes HA see a brand-new device.
+  name: breezy
+  friendly_name: Breezy
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+  # Keep this at DEBUG. VERBOSE enables a dump of every bus burst, and the
+  # log volume blocks the capture interrupt hard enough to drop clock edges -
+  # frames then lose a bit and silently decode as something else (measured:
+  # 40% of frames corrupt at VERBOSE vs 0.1% at DEBUG). For protocol work use
+  # the throttled `sample:` lines that DEBUG already emits. See
+  # docs/PROTOCOL_BUS.md "capture health".
+  level: DEBUG
+  baud_rate: 115200
+
+api:
+  encryption:
+    key: !secret api_key
+  services:
+    # Raw IR timings, v4 polarity: mark -> GPIO4 HIGH -> transistor ON -> line LOW.
+    # Matches the proven arduino/ac_ir.ino line waveform (idle HIGH, marks LOW).
+    - service: send_ir_raw
+      variables:
+        timings: int[]
+      then:
+        # Goes out via RMT like everything else - software bit-banging this pin
+        # produced timing corruption whenever another task preempted it.
+        - lambda: |-
+            ESP_LOGI("ir", "Sending %d timings", timings.size());
+            auto call = id(ir_tx).transmit();
+            auto *d = call.get_data();
+            d->set_carrier_frequency(0);
+            bool mark = true;
+            for (int t : timings) {
+              if (t > 0 && t < 65535) {
+                if (mark) d->mark(t); else d->space(t);
+              }
+              mark = !mark;
+            }
+            call.perform();
+            ESP_LOGI("ir", "Done");
+
+    # Experiment: send a SHORT buffer and let RMT repeat it, instead of one
+    # long buffer. Short enough to load once = no mid-flight refill = no glitch.
+    - service: send_ir_raw_n
+      variables:
+        timings: int[]
+        times: int
+        wait_us: int
+      then:
+        - lambda: |-
+            ESP_LOGI("ir", "Sending %d timings x%d (wait %dus)", timings.size(), times, wait_us);
+            auto call = id(ir_tx).transmit();
+            auto *d = call.get_data();
+            d->set_carrier_frequency(0);
+            bool mark = true;
+            for (int t : timings) {
+              if (t > 0 && t < 65535) {
+                if (mark) d->mark(t); else d->space(t);
+              }
+              mark = !mark;
+            }
+            call.set_send_times(times);
+            call.set_send_wait(wait_us);
+            call.perform();
+            ESP_LOGI("ir", "Done");
+
+ota:
+  platform: esphome
+  password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Breezy-V4-AP"
+    password: !secret fallback_password
+
+captive_portal:
+
+web_server:
+  port: 80
+
+external_components:
+  # Pull the components straight from this repo. Add @<branch|tag|commit> to
+  # pin a revision.
+  - source: github://BackSlasher/breezy
+    components: [breezy_spi, breezy_climate]
+    refresh: 1d
+
+  # Or use a local checkout instead, if you are editing the components:
+  # - source:
+  #     type: local
+  #     path: components
+
+# Divider taps need plain INPUT mode — do not add pullup/pulldown options here;
+# a ~45K internal pull-up against the 280K divider would pin the reading.
+breezy_spi:
+  clk_pin: GPIO14
+  data_pin: GPIO27
+  # 'raw' = tapping the controller<->panel bus directly (the permanent
+  # install). 'splitter' = tapping downstream of the AC's splitter accessory,
+  # which re-serves the bus in a padded 112-bit form (the dev topology).
+  dialect: raw
+  id: spi_hub
+
+sensor:
+  - platform: breezy_spi
+    breezy_spi_id: spi_hub
+    set_temperature:
+      name: "Set Temperature"
+      id: set_temp
+    room_temperature:
+      name: "Room Temperature"
+      id: room_temp
+
+binary_sensor:
+  - platform: breezy_spi
+    breezy_spi_id: spi_hub
+    power:
+      name: "Power"
+      id: hvac_power
+    compressor:
+      name: "Compressor"
+      id: hvac_compressor
+
+text_sensor:
+  - platform: breezy_spi
+    breezy_spi_id: spi_hub
+    mode:
+      name: "Mode"
+      id: hvac_mode
+    fan:
+      name: "Fan"
+      id: hvac_fan
+
+# Thermostat entity for Home Assistant. Reads real state from the SPI taps
+# above and sends IR through the GPIO4 transistor stage.
+# IR transmit via the RMT peripheral. Carrier is disabled (baseband protocol);
+# a "mark" drives GPIO4 high, turning the transistor on and pulling the IR line
+# low, which is the correct active-low mark.
+remote_transmitter:
+  id: ir_tx
+  pin: GPIO4
+  carrier_duty_percent: 100%
+
+climate:
+  - platform: breezy_climate
+    name: "Breezy"
+    transmitter_id: ir_tx
+    power_sensor: hvac_power
+    mode_sensor: hvac_mode
+    set_temp_sensor: set_temp
+    room_temp_sensor: room_temp
+    fan_sensor: hvac_fan
+    compressor_sensor: hvac_compressor
+    # Freshness gate for closed-loop verification - see breezy_climate.cpp
+    spi_hub: spi_hub
+
+# IR capture through the actual panel receiver path (line is active-low)
+remote_receiver:
+  pin:
+    number: GPIO5
+    inverted: true
+  dump: raw
+  tolerance: 25%
