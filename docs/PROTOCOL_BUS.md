@@ -2,11 +2,10 @@
 
 Current-truth spec of the wire protocol between the HVAC controller and the
 LCD panel of a **USP 5010** kit (panel marked USP5010BE), as measured on the
-permanent install (2026-08-14). No history -
-for how each fact was established, see the working notes (`ir_commands.md`,
-and the bring-up post-mortems where they are available). The IR command
-language (what the remote and breezy transmit) is a separate document:
-`PROTOCOL_IR.md`.
+permanent install (2026-08-14). No history - for how each fact was
+established, see the working notes (`ir_commands.md`, and the bring-up
+post-mortems where they are available). The IR command language (what the
+remote and breezy transmit) is a separate document: `PROTOCOL_IR.md`.
 
 ## 1. Physical layer
 
@@ -46,7 +45,7 @@ established (section 2.1) - only the controller status has been decoded.
 
 ### 2.1 LCD status poll - PROVISIONAL, low priority
 
-Not heavily reasearched, as I'm not reading / writing this.  
+Not heavily researched, as I'm not reading / writing this.  
 These are written by the panel, because when unplugged these are all "1"s.  
 The panel's idle value (plugged in, not pressing anything) is `95 5F FF F1 5x`.
 
@@ -121,6 +120,13 @@ We used to have frames that are one bit short.
 Turns out it's capture artifacts from keeping the ESP32 cpu busy with logging (40.5% corruption on VERBOSE logging, 0.1% on DEBUG).  
 When in doubt, use the **throttled DEBUG sampler** (`sample:` log lines, <=2 bursts/s, verified 100% pure), never the VERBOSE dump.  
 Alternatively, use a dedicated capture device (either another ESP32, or BusPirate).
+
+**Bursts longer than 76 bits are two frames stuck together.** If you delimit
+bursts on an idle gap (breezy uses >500µs), the ~611µs gap between a poll and
+its controller status sometimes measures short and the pair arrives as one
+111-114 bit burst - more often when the CPU is busy. Don't discard them: the
+controller status starts at bit 37 (36-bit poll + 1) and passes both
+checksums. Breezy un-glues them rather than dropping the frame.
 
 
 ## 6. Appendix: the splitter dialect
