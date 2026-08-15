@@ -26,10 +26,12 @@ logger:
 api:
   encryption:
     key: !secret api_key
-  services:
+  # `actions:` is the current spelling; `services:` still works but is
+  # deprecated.
+  actions:
     # Raw IR timings, v4 polarity: mark -> GPIO4 HIGH -> transistor ON -> line LOW.
     # Matches the proven arduino/ac_ir.ino line waveform (idle HIGH, marks LOW).
-    - service: send_ir_raw
+    - action: send_ir_raw
       variables:
         timings: int[]
       then:
@@ -52,7 +54,7 @@ api:
 
     # Experiment: send a SHORT buffer and let RMT repeat it, instead of one
     # long buffer. Short enough to load once = no mid-flight refill = no glitch.
-    - service: send_ir_raw_n
+    - action: send_ir_raw_n
       variables:
         timings: int[]
         times: int
@@ -98,7 +100,9 @@ external_components:
     components: [breezy_spi, breezy_climate]
     refresh: 1d
 
-  # Or use a local checkout instead, if you are editing the components:
+  # Or use a local checkout instead, if you are editing the components -
+  # otherwise your local edits are silently ignored and you flash whatever
+  # is on GitHub (and `refresh` caches it for up to a day):
   # - source:
   #     type: local
   #     path: components
