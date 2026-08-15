@@ -37,9 +37,9 @@ As skunkworks as I got:
    1. connected to breadboard (cut on the left), and through it to the HVAC controller
    2. connected to the rpi via USB, operating in SUMP (transmitting relatively-raw data over USB to be read by sigrok)
 3. rpicam  
-  1. connected to rpi via the ribbon cable
-  2. mounted on my 3d-printed camera-lcd-holder
-  3. pointing at the lcd panel, so it sees the mode, compressor indicator, fan, temps
+   1. connected to rpi via the ribbon cable
+   2. mounted on my 3d-printed camera-lcd-holder
+   3. pointing at the lcd panel, so it sees the mode, compressor indicator, fan, temps
 4. lcd panel  
    1. removed from the plastic case, and instead mounted on my 3d-printed holder
    2. held in place by zip-ties which were a bit fiddly, but as long as a 1-meter no-fly-zone around the table was maintained, worked.
