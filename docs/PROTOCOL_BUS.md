@@ -44,17 +44,6 @@ wired-AND, the LCD's answer is written INTO the poll frame rather than
 sent as a separate response. What the panel actually reports is NOT
 established (section 2.1) - only the controller status has been decoded.
 
-NITZ not sure what this praragraph serves
-**A third "frame family" used to be documented here and does not exist.**
-Bursts of 111-114 bits are an LCD status poll and a controller status
-arriving less than 500µs apart, so the burst recorder glues them into one
-record: the controller status starts at **bit 37** (36-bit poll + 1) and
-passes both checksums
-every time. Un-glue rather than discard - glued pairs get more common when
-the bus is busy. Everything once attributed to a "master frame" was this
-misreading (notably "master byte10 = power", which was the controller
-status's own byte2 power bit seen at a shifted offset).
-
 ### 2.1 LCD status poll - PROVISIONAL, low priority
 
 Not heavily reasearched, as I'm not reading / writing this.  
