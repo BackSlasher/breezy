@@ -17,6 +17,12 @@ namespace esphome {
 namespace breezy_climate {
 
 // IR timing constants (microseconds).
+// THE ISOCHRONY LAW (2026-08-17, PROTOCOL_IR.md 3.5): every symbol is an
+// exact multiple of one ~960us tick - SS=2, LS=3, LM=3, LL=4 - and every
+// state frame totals exactly 68 ticks (power code words 17, with the power
+// header one tick longer to compensate). A frame with the right BITS but
+// the wrong DURATION is silently rejected; every historical rejection was
+// exactly 2 ticks short. Do not edit spellings by reasoning about bits.
 // Retuned 2026-08-06 to match the vendor remote AT SOURCE: same-tap diff of
 // remote frames vs ours showed our marks ~26us short, our spaces ~26us long,
 // and header/sep spaces ~33us long (n=2838 short symbols per side). The old

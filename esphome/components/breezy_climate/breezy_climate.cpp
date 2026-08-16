@@ -905,13 +905,16 @@ size_t BreezyClimate::ir_encode_(IRMode mode, uint8_t temp, IRFan fan, uint16_t 
   if (temp < 16 || temp > 30) return 0;
   if (max_len < 200) return 0;
 
-  // heat/med is NOT a byte code (2026-08-14 remote capture, 3 frames
-  // agree): it is the 7-BIT code 0111100 in a 30-bit frame - heat/high
-  // (0x78) truncated one bit, length-disambiguated like 24C-vs-25C. The
-  // old 0x5C table entry is not what the remote sends (per the code
-  // composition, 5C is likely AUTO/med from a mislabeled archive capture).
-  // Emit the captured spelling verbatim: SS LS LM LS LM, then the temp/
-  // zeros/tail region on the Standard machine seeded AfterLM.
+  // heat/med's code VALUE is 0x78 - the same byte as heat/high - rendered
+  // as its alternate equal-DURATION spelling (2026-08-14 capture; isochrony
+  // law 2026-08-17, PROTOCOL_IR.md 3.5): LL -> LM LS (+2 ticks) with one
+  // trailing SS dropped (-2 ticks). Read as bits that looks like "7 bits /
+  // one shorter", but nothing is shorter on the wire - the frame is the
+  // same 68 ticks as every other, and a bit-level "truncation" (66 ticks)
+  // is silently rejected (live-tested 2026-08-17). Same mechanism as
+  // 24C-vs-25C. The old 0x5C table entry was a mislabeled AUTO/med
+  // capture. Emit the captured spelling verbatim: SS LS LM LS LM, then
+  // the temp/zeros/tail region on the Standard machine seeded AfterLM.
   if (mode == IRMode::Heat && fan == IRFan::Med) {
     uint8_t tb = get_temp_byte_(temp);
     uint8_t rest[26];
