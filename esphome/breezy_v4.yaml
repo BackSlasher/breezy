@@ -26,56 +26,9 @@ logger:
 api:
   encryption:
     key: !secret api_key
-  # `actions:` is the current spelling; `services:` still works but is
-  # deprecated.
-  actions:
-    # Raw IR timings, v4 polarity: mark -> GPIO4 HIGH -> transistor ON -> line LOW.
-    # Matches the proven arduino/ac_ir.ino line waveform (idle HIGH, marks LOW).
-    - action: send_ir_raw
-      variables:
-        timings: int[]
-      then:
-        # Goes out via RMT like everything else - software bit-banging this pin
-        # produced timing corruption whenever another task preempted it.
-        - lambda: |-
-            ESP_LOGI("ir", "Sending %d timings", timings.size());
-            auto call = id(ir_tx).transmit();
-            auto *d = call.get_data();
-            d->set_carrier_frequency(0);
-            bool mark = true;
-            for (int t : timings) {
-              if (t > 0 && t < 65535) {
-                if (mark) d->mark(t); else d->space(t);
-              }
-              mark = !mark;
-            }
-            call.perform();
-            ESP_LOGI("ir", "Done");
-
-    # Experiment: send a SHORT buffer and let RMT repeat it, instead of one
-    # long buffer. Short enough to load once = no mid-flight refill = no glitch.
-    - action: send_ir_raw_n
-      variables:
-        timings: int[]
-        times: int
-        wait_us: int
-      then:
-        - lambda: |-
-            ESP_LOGI("ir", "Sending %d timings x%d (wait %dus)", timings.size(), times, wait_us);
-            auto call = id(ir_tx).transmit();
-            auto *d = call.get_data();
-            d->set_carrier_frequency(0);
-            bool mark = true;
-            for (int t : timings) {
-              if (t > 0 && t < 65535) {
-                if (mark) d->mark(t); else d->space(t);
-              }
-              mark = !mark;
-            }
-            call.set_send_times(times);
-            call.set_send_wait(wait_us);
-            call.perform();
-            ESP_LOGI("ir", "Done");
+  # The send_ir_raw / send_ir_raw_n services are registered by the
+  # breezy_climate component itself; this flag allows components to do that.
+  custom_services: true
 
 ota:
   platform: esphome

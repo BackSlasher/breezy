@@ -49,7 +49,54 @@ void BreezyClimate::setup() {
   this->mode = climate::CLIMATE_MODE_OFF;
   this->target_temperature = 22;
   this->fan_mode = climate::CLIMATE_FAN_AUTO;
+
+#ifdef USE_API
+  register_service(&BreezyClimate::on_send_ir_raw, "send_ir_raw", {"timings"});
+  register_service(&BreezyClimate::on_send_ir_raw_n, "send_ir_raw_n",
+                   {"timings", "times", "wait_us"});
+#endif
 }
+
+#ifdef USE_API
+void BreezyClimate::on_send_ir_raw(std::vector<int32_t> timings) {
+  ESP_LOGI(TAG, "send_ir_raw: %u timings", (unsigned) timings.size());
+  // Clamp out-of-range values to 0; transmit_timings_ skips zeros while still
+  // flipping mark/space parity, which exactly matches the old yaml lambda
+  // (including tolerating the historical 65535 end-of-capture terminator).
+  std::vector<uint16_t> buf(timings.size());
+  for (size_t i = 0; i < timings.size(); i++) {
+    int t = timings[i];
+    buf[i] = (t > 0 && t < 65535) ? (uint16_t) t : 0;
+  }
+  transmit_timings_(buf.data(), buf.size());
+}
+
+void BreezyClimate::on_send_ir_raw_n(std::vector<int32_t> timings, int32_t times, int32_t wait_us) {
+  ESP_LOGI(TAG, "send_ir_raw_n: %u timings x%d (wait %dus)",
+           (unsigned) timings.size(), times, wait_us);
+  if (this->transmitter_ == nullptr) {
+    ESP_LOGE(TAG, "no transmitter configured");
+    return;
+  }
+  auto call = this->transmitter_->transmit();
+  auto *data = call.get_data();
+  data->set_carrier_frequency(0);
+  bool mark = true;
+  for (int t : timings) {
+    if (t > 0 && t < 65535) {
+      if (mark) {
+        data->mark(t);
+      } else {
+        data->space(t);
+      }
+    }
+    mark = !mark;
+  }
+  call.set_send_times(times);
+  call.set_send_wait(wait_us);
+  call.perform();
+}
+#endif
 
 void BreezyClimate::loop() {
   // Send any pending IR here, in the main task. Never transmit from control():

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "esphome/core/defines.h"  // USE_API - must precede the #ifdef guards
 #include "esphome/core/component.h"
 #include "esphome/core/hal.h"
 #include "esphome/components/climate/climate.h"
@@ -8,6 +9,9 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "esphome/components/breezy_spi/breezy_spi.h"
+#ifdef USE_API
+#include "esphome/components/api/custom_api_device.h"
+#endif
 
 namespace esphome {
 namespace breezy_climate {
@@ -67,9 +71,24 @@ enum class State : uint8_t { Fresh, After0, AfterLL, AfterLM, AfterLS };
 
 class BreezyClimate : public climate::Climate,
                       public Component,
-                      public remote_base::RemoteTransmittable {
+                      public remote_base::RemoteTransmittable
+#ifdef USE_API
+    ,
+                      public api::CustomAPIDevice
+#endif
+{
  public:
   void setup() override;
+
+#ifdef USE_API
+  // API services (register_service in setup()). These replace the yaml-lambda
+  // versions that used to live in the config: same names, same semantics, so
+  // existing HA scripts keep working - but the raw-transmit logic now has one
+  // home (transmit_timings_) instead of three copies. Requires
+  // `custom_services: true` under `api:` in the yaml.
+  void on_send_ir_raw(std::vector<int32_t> timings);
+  void on_send_ir_raw_n(std::vector<int32_t> timings, int32_t times, int32_t wait_us);
+#endif
   void loop() override;
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::DATA; }
