@@ -69,8 +69,12 @@ timing on the wire (section 3.3).
 | 19 | `30` | | 24 | `78` | | 29 | `48` |
 | 20 | `3C` | | 25 | `78` | | 30 | `44` |
 
-**TAIL** = `0000011`, except `000011` (6 bits) when temp = 24. That tail
-length is the ONLY thing distinguishing 24°C from 25°C - they share `78`.
+**TAIL** = `0000011`, except `000011` (6 bits) when temp = 24 - though that
+bit-level description is a projection artifact: on the wire, 24°C's temp
+word is `0x78` re-spelled at identical duration and the frame's END is
+trimmed to pay for it. 24°C and 25°C share `78` and are distinguished by
+spelling alone. See section 3.5 (the isochrony law) for what is actually
+going on.
 
 **CODE** - for STATE_COMMAND the code is a byte (with ONE exception, below).
 DRY and AUTO are documented for completeness but unsupported by breezy;
@@ -90,14 +94,18 @@ cool=`2`, AUTO=`4`, heat=`6`, DRY=`C`, fan_only=`E`. Bit `0x10` is set
 when needed to make the byte's popcount EVEN. Every entry above derives
 exactly (e.g. AUTO/low = `40`, odd popcount, `|0x10` -> `50`).
 
-**The exception - heat/med is not a byte** (2026-08-14 capture, live
-validated): its code is the 7-BIT `0111100` in a 30-bit frame, spelled
-`SS LS LM LS LM SS SS` - heat/high truncated one bit, disambiguated by
-frame LENGTH, the same trick as 24°C-vs-25°C. The historic `5C` "heat/med"
-table entry was a mislabeled AUTO/med capture (`5C` = `4C|0x10` per the
-composition; sending `5C` to a unit in heat was observed live to switch it
-out of heat into a mode whose bus code is `00` - by elimination, AUTO).
-With that relabel the vendor table contains NO anomalies.
+**The apparent exception - heat/med reads as 7 bits** (2026-08-14 capture,
+live validated): its code is `0111100`, spelled `SS LS LM LS LM SS SS`.
+At the bit level this looks like heat/high truncated by one bit; on the
+wire it is heat/high's word (`0x78`) RE-SPELLED AT IDENTICAL DURATION -
+same trick as 24°C-vs-25°C, and nothing is actually shorter. See section
+3.5: the heat mode only has 3 legal 18-tick words for its 4 fan speeds,
+so `0x78`'s unique alternate spelling plugs the gap. The historic `5C`
+"heat/med" table entry was a mislabeled AUTO/med capture (`5C` = `4C|0x10`
+per the composition; sending `5C` to a unit in heat was observed live to
+switch it out of heat into a mode whose bus code is `00` - by elimination,
+AUTO). With that relabel, and the isochrony law, the vendor table contains
+NO anomalies at all - every entry derives.
 
 For POWER_FRAME the code is 7-8 bits and - critically - is defined at the
 SYMBOL level, not the bit level. See the wrinkle below.
@@ -183,6 +191,55 @@ required; 1- and 2-frame blasts are rejected - then a trailing mark:
 
 The header/separator SPACE is the message-type discriminator - same body
 bits with the ~3773µs spacing is a power frame.
+
+### 3.5 THE ISOCHRONY LAW (2026-08-17) - time, not bits, is the unit
+
+Every symbol is an exact integer multiple of one ~960µs tick:
+
+| symbol | duration | reads as |
+|--------|----------|----------|
+| SS | 2 ticks | `0` |
+| LS | 3 ticks | `1` |
+| LM | 3 ticks | `1` |
+| LL | 4 ticks | `11` |
+
+**Every state-command frame is exactly 68 ticks** (code word 18 + temp word
+18 + zeros/tail 32), across 123 archived capture arrays and every live
+frame checked. Bit counts wobble 29-31; duration never moves. Power-frame
+code words are 17 ticks (odd parity - the two message types are
+parity-separated) and the power header space is exactly one tick longer,
+keeping the blast total constant.
+
+Consequences, each verified:
+
+- **The "parity bit" is duration bookkeeping.** Even popcount == even
+  duration; the `|0x10` rule in the code table is the bit-level shadow of
+  "every word lasts an even number of ticks."
+- **Both "7-bit" anomalies are the same object.** `LL` (4 ticks, reads
+  `11`) can be re-spelled `LM LS` (6 ticks, reads `11`) and one trailing
+  `SS` (2 ticks, reads `0`) dropped to pay for it: same duration, one bit
+  fewer. `0x78` is the ONLY byte in the vocabulary where this substitution
+  is legal - and the word inventory needed exactly that escape hatch
+  exactly twice: 14 legal temp words exist for 15 temperatures (24/25
+  share `78`), and 3 legal heat code words exist for 4 fan speeds
+  (heat/med reuses `78`'s alternate spelling). Cool, AUTO and fan_only
+  each have exactly 4 legal words for 4 speeds - no anomaly needed. DRY
+  has exactly ONE legal word (`C0`, no alternate possible) - and the
+  vendor remote indeed refuses every fan speed but one in DRY.
+- **Wrong duration = rejection.** Live-tested 2026-08-17: heat/med sent as
+  a 66-tick frame (identical BITS to the real one) is ignored; the 68-tick
+  spelling lands first-try. This retroactively explains three historical
+  rejections, all exactly 2 ticks short: fan-only-24 (byte0 `LL LL LL` =
+  16 ticks vs the remote's 18), the heat/auto power frames of 2026-08-07
+  (tail `LL` for `LS LM`), and the naive 24°C truncation.
+- **Right duration is necessary, not sufficient**: heat/med and cool/med
+  power codes are equal-duration, equal-bits, different-shape - and the
+  receiver tells them apart. The best receiver model is a fixed-length
+  sampling window feeding a waveform-template matcher.
+
+Predictions if anyone extends the table: AUTO/high, if it exists, must be
+`0x48` (the last unused word); no second DRY word can exist; and no
+USP-style remote under this scheme can offer more than 15 temperatures.
 
 ## 4. Epistemics: what is fact and what is model
 
