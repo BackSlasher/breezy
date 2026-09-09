@@ -124,6 +124,11 @@ idle high, mark = line low; timings in µs, remote-matched):
 | LM | 1992 | 894  | `1`  |
 | LL | 1992 | 1849 | `11` |
 
+The names are not positional pairs. `L` says the symbol is long overall, and
+the second letter says which half is stretched: `M` = the **mark**, `S` = the
+**space**. So `LS` is a short mark with a long space, and `LM` is its mirror.
+There is no "medium" anywhere in the protocol - every part is short or long.
+
 Three different symbols encode `1`s, so one bit string has many possible
 "spellings" - and **the receiver distinguishes commands by spelling, not
 bits**. Example: heat/med and cool/med power codes are both `1111100` as

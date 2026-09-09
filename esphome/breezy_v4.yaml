@@ -71,6 +71,10 @@ breezy_spi:
   dialect: raw
   id: spi_hub
 
+# Feeds the debug platform entities below (heap free, reset reason).
+debug:
+  update_interval: 60s
+
 sensor:
   - platform: breezy_spi
     breezy_spi_id: spi_hub
@@ -80,6 +84,22 @@ sensor:
     room_temperature:
       name: "Room Temperature"
       id: room_temp
+  # Diagnostics. Worth having from day one: when the node drops off the network
+  # and comes back by itself, uptime is what separates "it rebooted" from "it
+  # stayed up but was unreachable", and those have completely different causes.
+  # 60s intervals are far too slow to disturb the capture ISR.
+  - platform: uptime
+    name: "Uptime"
+    entity_category: diagnostic
+    update_interval: 60s
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    entity_category: diagnostic
+    update_interval: 60s
+  - platform: debug
+    free:
+      name: "Heap Free"
+      entity_category: diagnostic
 
 binary_sensor:
   - platform: breezy_spi
@@ -100,6 +120,12 @@ text_sensor:
     fan:
       name: "Fan"
       id: hvac_fan
+  # Reset reason separates a brownout (electrical - the compressor contactor is
+  # switching a heavy inductive load nearby) from a watchdog or a crash.
+  - platform: debug
+    reset_reason:
+      name: "Reset Reason"
+      entity_category: diagnostic
 
 # Thermostat entity for Home Assistant. Reads real state from the SPI taps
 # above and sends IR through the GPIO4 transistor stage.

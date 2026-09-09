@@ -108,7 +108,11 @@ void BreezySPIComponent::loop() {
     size_t hp = 0;
     for (int i = 0; i < 21 && hp < sizeof(hb) - 16; i++) {
       if (edge_hist_[i])
-        hp += snprintf(hb + hp, sizeof(hb) - hp, "%d:%u ", i * 32, edge_hist_[i]);
+        // Cast: uint32_t is `unsigned long` on this toolchain, so a bare %u is
+        // a -Wformat error, which the ESP-IDF build treats as fatal. Same idiom
+        // as the (unsigned) casts in breezy_climate.cpp.
+        hp += snprintf(hb + hp, sizeof(hb) - hp, "%d:%u ", i * 32,
+                       (unsigned) edge_hist_[i]);
     }
     ESP_LOGD(TAG, "edges: %s", hb);
   }
