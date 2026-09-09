@@ -35,6 +35,13 @@ ota:
   password: !secret ota_password
 
 wifi:
+  # LIGHT is the ESP32 default, and it is worth overriding on a mains-powered
+  # node. Observed failure: the router logged 127 DHCPDISCOVER broadcasts and
+  # answered every one with a DHCPOFFER, but never saw a DHCPREQUEST back -
+  # broadcast out worked, unicast in did not, because the AP was not
+  # delivering buffered frames to a sleeping station. The node stayed
+  # associated and simply had no IP for over an hour.
+  power_save_mode: none
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   ap:
