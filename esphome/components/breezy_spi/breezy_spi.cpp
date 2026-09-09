@@ -96,8 +96,12 @@ void BreezySPIComponent::loop() {
   uint32_t now_ms = millis();
   if (now_ms - diag_last_report_ >= 5000) {
     diag_last_report_ = now_ms;
+    // uint32_t is `unsigned long` on the xtensa toolchain, so %u needs an
+    // explicit cast or -Wformat warns. ESP_LOG* is format-checked too, not
+    // just snprintf. Same idiom as the (unsigned) casts in breezy_climate.cpp.
     ESP_LOGD(TAG, "health: slip_rejects=%u last_frame_age=%ums",
-             diag_slip_rejects_, status_.valid ? now_ms - status_.timestamp : 0);
+             (unsigned) diag_slip_rejects_,
+             (unsigned) (status_.valid ? now_ms - status_.timestamp : 0));
     // Inter-edge interval histogram, 32µs buckets. Cheap (one line / 5s) and
     // it is the instrument that identified log-flood frame corruption on
     // 2026-08-14: a healthy bus is bimodal - ~95% of edges in the 128-159µs
@@ -108,9 +112,7 @@ void BreezySPIComponent::loop() {
     size_t hp = 0;
     for (int i = 0; i < 21 && hp < sizeof(hb) - 16; i++) {
       if (edge_hist_[i])
-        // Cast: uint32_t is `unsigned long` on this toolchain, so a bare %u is
-        // a -Wformat error, which the ESP-IDF build treats as fatal. Same idiom
-        // as the (unsigned) casts in breezy_climate.cpp.
+        // (unsigned) for the same -Wformat reason as the log line above.
         hp += snprintf(hb + hp, sizeof(hb) - hp, "%d:%u ", i * 32,
                        (unsigned) edge_hist_[i]);
     }
