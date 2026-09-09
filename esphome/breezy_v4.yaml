@@ -35,12 +35,7 @@ ota:
   password: !secret ota_password
 
 wifi:
-  # LIGHT is the ESP32 default, and it is worth overriding on a mains-powered
-  # node. Observed failure: the router logged 127 DHCPDISCOVER broadcasts and
-  # answered every one with a DHCPOFFER, but never saw a DHCPREQUEST back -
-  # broadcast out worked, unicast in did not, because the AP was not
-  # delivering buffered frames to a sleeping station. The node stayed
-  # associated and simply had no IP for over an hour.
+  # Powered by mains - no need to sleep and miss wifi coordination.
   power_save_mode: none
   ssid: !secret wifi_ssid
   password: !secret wifi_password
@@ -91,10 +86,8 @@ sensor:
     room_temperature:
       name: "Room Temperature"
       id: room_temp
-  # Diagnostics. Worth having from day one: when the node drops off the network
-  # and comes back by itself, uptime is what separates "it rebooted" from "it
-  # stayed up but was unreachable", and those have completely different causes.
-  # 60s intervals are far too slow to disturb the capture ISR.
+  # Diagnostics. Uptime separates a node that rebooted from one that stayed up
+  # but unreachable; 60s is slow enough not to disturb the capture ISR.
   - platform: uptime
     name: "Uptime"
     entity_category: diagnostic
@@ -127,8 +120,8 @@ text_sensor:
     fan:
       name: "Fan"
       id: hvac_fan
-  # Reset reason separates a brownout (electrical - the compressor contactor is
-  # switching a heavy inductive load nearby) from a watchdog or a crash.
+  # Brownout points at an electrical transient; anything else at the WiFi
+  # stack or a crash.
   - platform: debug
     reset_reason:
       name: "Reset Reason"
