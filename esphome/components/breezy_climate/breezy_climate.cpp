@@ -350,6 +350,19 @@ void BreezyClimate::control(const climate::ClimateCall &call) {
   // asymmetric: toggling OFF requires positive proof the unit is on
   // (sensor reads cool/fan_only); anything less skips the toggle.
   if (target_mode == climate::CLIMATE_MODE_OFF) {
+    // Snapshot the CURRENT state before it is overwritten below: the off
+    // toggle is a power frame that must carry the state the unit is in, and
+    // send_power_toggle_() prefers the live SPI decode, falling back to this.
+    // Until 2026-11-12 it read this->mode AFTER the line that sets it to OFF,
+    // mapped OFF to Cool, and so every HA power-off sent a cool-spelled frame.
+    // In cool season that was right by accident; a heat unit ignored it 6/6.
+    tx_mode_ = climate_mode_to_ir_mode_(this->mode == climate::CLIMATE_MODE_OFF
+                                            ? climate::CLIMATE_MODE_COOL : this->mode);
+    tx_fan_ = climate_fan_to_ir_fan_(this->fan_mode.value_or(climate::CLIMATE_FAN_AUTO));
+    {
+      float t = this->target_temperature;
+      tx_temp_ = (t >= 16 && t <= 30) ? static_cast<uint8_t>(t) : 24;
+    }
     tx_target_off_ = true;
     tx_stage_ = TxStage::Decide;
     tx_not_before_ = millis();
@@ -516,22 +529,43 @@ size_t BreezyClimate::power_state_encode_(IRMode mode, IRFan fan, uint8_t temp,
 }
 
 bool BreezyClimate::send_power_toggle_() {
-  // Prefer the state-carrying power frame with the TARGET state, so a
-  // power-on lands directly in the wanted mode - single blast, no limbo.
-  IRMode m = tx_command_after_toggle_ ? tx_mode_ : climate_mode_to_ir_mode_(
-      this->mode == climate::CLIMATE_MODE_OFF ? climate::CLIMATE_MODE_COOL : this->mode);
-  IRFan f = tx_command_after_toggle_ ? tx_fan_
-      : climate_fan_to_ir_fan_(this->fan_mode.value_or(climate::CLIMATE_FAN_AUTO));
-  uint8_t temp = tx_command_after_toggle_ ? tx_temp_
-      : static_cast<uint8_t>(this->target_temperature);
+  // The power frame is toggle-with-embedded-state. Power-ON carries the
+  // TARGET state, so the unit wakes directly into the wanted mode - single
+  // blast, no limbo. Power-OFF must carry the state the unit is IN: on
+  // 2026-11-12 a heat/24/low unit ignored six cool-spelled power frames in a
+  // row (bus power bit never moved, decode fresh throughout); the remote then
+  // turned it off at once. For OFF, prefer the live SPI decode (the unit's
+  // truth); control() snapshotted the entity's belief into tx_* as fallback.
+  // Acceptance test for this path: HA off while in HEAT.
+  IRMode m = tx_mode_;
+  IRFan f = tx_fan_;
+  uint8_t temp = tx_temp_;
+  if (!tx_command_after_toggle_ && spi_hub_ != nullptr && spi_hub_->status().valid) {
+    const auto &st = spi_hub_->status();
+    switch (st.mode) {
+      case 0x20: m = IRMode::Heat; break;
+      case 0x80: m = IRMode::Cool; break;
+      case 0xC0: m = IRMode::FanOnly; break;
+      default: break;  // DRY/AUTO have no power code of ours; keep the fallback
+    }
+    switch (st.fan) {
+      case 0x80: f = IRFan::Auto; break;
+      case 0x8C: f = IRFan::Low; break;
+      case 0x84: f = IRFan::Med; break;
+      case 0x88: f = IRFan::High; break;
+      default: break;
+    }
+    if (st.set_temp >= 16 && st.set_temp <= 30) temp = st.set_temp;
+  }
   if (temp < 16) temp = 16;
   if (temp > 30) temp = 30;
 
   size_t len = power_state_encode_(m, f, temp, ir_buffer_, 400);
   if (len > 0) {
     transmit_timings_(ir_buffer_, len);
-    ESP_LOGD(TAG, "Sent power-state frame: mode=%d temp=%d fan=%d (%zu timings)",
-             static_cast<int>(m), temp, static_cast<int>(f), len);
+    ESP_LOGD(TAG, "Sent power-state frame: %s mode=%s temp=%d fan=%s (%zu timings)",
+             tx_command_after_toggle_ ? "ON" : "OFF", ir_mode_to_string_(m), temp,
+             ir_fan_to_string_(f), len);
     return true;
   }
   // Unmapped combo: legacy auto-variant toggle (= heat/auto state frame, but
