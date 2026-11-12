@@ -88,18 +88,33 @@ class BreezySPIComponent : public PollingComponent {
     return ((x & 1) << 3) | ((x & 2) << 1) | ((x & 4) >> 1) | ((x & 8) >> 3);
   }
 
-  // The state frame's two checksums (see PROTOCOL_BUS.md): read the 76 bits
-  // LSB-first as nineteen 4-bit groups and the last two are sums of the
-  // preceding low/high nibbles mod 16, the second with a constant -2 seed.
+  // The state frame's checksum (see PROTOCOL_BUS.md 3.1): ONE 8-bit sum,
+  // mod 256, of the payload with each nibble bit-reversed (the bus is
+  // LSB-first): bytes 1..7 whole, plus byte8's high nibble (the room
+  // field's upper half) as the high nibble of a ninth, half-filled byte.
+  // The header byte0 is excluded. The sum's low nibble is stored
+  // bit-reversed in byte8's low nibble, its high nibble in byte9's high
+  // nibble. So the two stored nibbles are NOT independent (the low sum
+  // carries into the high one) and byte8's upper half IS covered.
+  //
+  // History: the 2026-08-14 derivation modelled two independent mod-16
+  // nibble sums with a constant -2 seed. That is this formula restricted to
+  // the archive's conditions (low sum < 16, room 24-27 so byte8's high
+  // nibble was a constant 2, i.e. +4 after reversal; -6 + 4 = -2). It
+  // broke on 2026-11-11 (heat season): heat/25/low with the compressor
+  // running sums past 16, every frame was rejected for minutes, the decode
+  // froze on OFF while the unit ran. The carry-only fix of 2026-11-12 then
+  // broke the moment the room read 22 (byte8 high nibble 3). Cracked
+  // byte-exact on two frames and confirmed on every repeated frame recorded.
   // This is a true validity oracle - it authenticates a frame outright.
   static bool checksums_ok_(const uint8_t *d) {
-    uint8_t lo = 0, hi = 0;
-    for (int i = 0; i < 8; i++) {
-      lo += br4_(d[i] & 0x0F);
-      hi += br4_(d[i] >> 4);
+    uint8_t sum = 0;
+    for (int i = 1; i < 8; i++) {
+      sum += (uint8_t) ((br4_(d[i] >> 4) << 4) | br4_(d[i] & 0x0F));
     }
-    return br4_(d[8] & 0x0F) == (lo & 0x0F) &&
-           br4_(d[9] >> 4) == ((uint8_t) (hi - 2) & 0x0F);
+    sum += (uint8_t) (br4_(d[8] >> 4) << 4);
+    return br4_(d[8] & 0x0F) == (sum & 0x0F) &&
+           br4_(d[9] >> 4) == (sum >> 4);
   }
 
   void decode_status_();

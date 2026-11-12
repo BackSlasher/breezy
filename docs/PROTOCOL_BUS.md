@@ -89,23 +89,41 @@ is exactly **76 bits**; any other length is a capture defect (section 5).
 the *stored* mode/set/fan (what the unit would wake into). Only byte2 tells
 the truth about power. Never infer power from mode.
 
-### 3.1 The two checksums
+### 3.1 The checksum
 
-Read the 76 bits LSB-first as nineteen 4-bit groups; the last two are sums
-of the preceding groups, mod 16. In byte terms:
+One 8-bit sum, mod 256, over the payload with every nibble bit-reversed
+(the bus is LSB-first). With `rb(x) = (br4(x >> 4) << 4) | br4(x & 0x0F)`:
 
 ```
-br4(byte8 & 0x0F) == sum(br4(byte[i] & 0x0F) for i in 0..7) % 16
-br4(byte9 >> 4)   == (sum(br4(byte[i] >> 4) for i in 0..7) - 2) % 16
+S  = (rb(byte1) + rb(byte2) + ... + rb(byte7) + (br4(byte8 >> 4) << 4)) % 256
+br4(byte8 & 0x0F) == S & 0x0F
+br4(byte9 >> 4)   == S >> 4
 ```
 
-The `-2` seed is constant across a 29h archive. Both hold on 99.87% of
-denoised archive frames and 100% of clean live capture (91/91).
+The header byte0 is not counted. Byte8 contributes only its high nibble
+(the room field's upper half); its low nibble is the checksum itself.
+Consequences: the two stored nibbles are not independent (the low half
+carries into the high half), and byte8's high nibble IS covered.
+
+History, because each partial model froze the decode for a whole class of
+states. The 2026-08-14 derivation (1.2M archived frames, cool season, rooms
+24-27) modelled two independent mod-16 nibble sums with a constant `-2`
+seed. That is the formula above restricted to the archive: low sums under
+16, and byte8's high nibble a constant 2 (+4 reversed, and -6 + 4 = -2).
+On 2026-11-11 heat / set 25 / fan low with the compressor running summed
+past 16; every frame was rejected for minutes and the decoded state froze
+on the last accepted frame (OFF) while the unit audibly ran. The carry-only
+fix of 2026-11-12 (`hi + lo // 16 - 2`) broke within an hour of flashing,
+the moment the room read 22 (byte8 high nibble 3). The full form was then
+solved byte-exact on two frames and holds on all 15 repeated distinct
+frames recorded over both nights (lo sums 10-25, byte8 high nibble 2 and
+3), while rejecting the four single-count corrupt frames.
 
 **Use them as the frame filter** - they are a true validity oracle, and
 they replaced the structural guesses (byte3/mode/temp-range) that used to
 reject legal frames and pass corrupt ones. One blind spot: the room field's
-upper bits (byte8 high nibble) are covered by NEITHER checksum, so a bit
+upper bits (byte8 high nibble) were believed uncovered until 2026-11-12
+(they are, see 3.1), and quantization flicker is real regardless, so a bit
 dropped there is invisible - keep a separate repeat vote on the room.
 
 ## 4. What the panel is

@@ -223,18 +223,19 @@ void BreezySPIComponent::loop() {
     if (b.nbits != 76) { if (b.data[0] == 0x60 && b.data[1] == 0x00) diag_slip_rejects_++; continue; }
     if (b.data[0] != 0x60 || b.data[1] != 0x00) continue;
 
-    // THE FRAME CARRIES TWO REAL CHECKSUMS (derived 2026-08-14 from 1.2M
-    // archived frames; verified 91/91 on clean live capture). Read the 76
-    // bits LSB-first as nineteen 4-bit groups: the last two groups are
-    // sums of the preceding groups mod 16. In byte terms, with br4() a
-    // 4-bit reversal:
-    //     br4(byte8 & 0x0F) == sum(br4(byte[i] & 0x0F), i=0..7) % 16
-    //     br4(byte9 >> 4)   == (sum(br4(byte[i] >> 4), i=0..7) - 2) % 16
+    // THE FRAME CARRIES A REAL CHECKSUM (first seen 2026-08-14 in 1.2M
+    // archived frames; full form settled 2026-11-12): one 8-bit sum, mod
+    // 256, of the nibble-reversed bytes 1..7 plus byte8's high nibble, with
+    // the low nibble of the sum stored (reversed) in byte8's low nibble and
+    // the high nibble in byte9's high nibble. See checksums_ok_() and
+    // PROTOCOL_BUS.md 3.1 for the formula and the two partial models that
+    // preceded it (each froze the decode for a whole class of states).
     // This REPLACES the old structural slip filter (byte3/mode/temp-range
     // guesses), which both rejected legal frames and passed corrupt ones -
-    // the phantom "DRY = 0x40" mode code came through it. Blind spot to
-    // respect: the room field's upper bits (byte8 bits 4-7) sit in no
-    // checksum, so the room still needs its own repeat vote below.
+    // the phantom "DRY = 0x40" mode code came through it. The room field's
+    // upper bits (byte8 bits 4-7) ARE covered, as of the full form; the
+    // room keeps its own repeat vote below anyway, for the quantization
+    // flicker.
     if (!checksums_ok_(b.data)) { diag_slip_rejects_++; continue; }
 
     // 2-consecutive vote, split in two. Bytes 2..6 (compressor/set/fan/mode)
@@ -250,7 +251,8 @@ void BreezySPIComponent::loop() {
       if (b.data[i] != vote_frame_[i]) match = false;
     }
     // Room votes on BOTH its halves: byte8's high nibble is the field's
-    // upper bits and is covered by neither checksum, so a bit dropped there
+    // upper bits (covered by the checksum since the 2026-11-12 full form,
+    // but the room sits on a quantization boundary), so a flicker there
     // is invisible to the filter and would decode as a wild temperature.
     bool room_match = (b.data[7] == vote_frame_[7]) &&
                       ((b.data[8] & 0xF0) == (vote_frame_[8] & 0xF0));
